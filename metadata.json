@@ -1,0 +1,6 @@
+{
+  "name": "Nakon-Player",
+  "description": "YouTube v21.35.442 UI/UX style offline local video player with gestures, PiP, background play, subtitles, and search.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,84 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Nakon-Player APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android Licenses & Ensure SDK 36
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+
+      - name: Restore Keystore & Environment Files
+        run: |
+          # 1. Restore debug.keystore from base64 if present, or generate fresh debug keystore
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Successfully restored debug.keystore from base64."
+          else
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            echo "Generated fallback debug.keystore."
+          fi
+
+          # 2. Ensure .env exists so secrets plugin does not fail
+          if [ ! -f ".env" ]; then
+            touch .env
+            echo "Created empty .env file for secrets plugin."
+          fi
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant Execute Permission to gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK with Gradle
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Prepare APK for Download
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/Nakon-Player-v21.35.442.apk
+          ls -lh app/build/outputs/apk/debug/Nakon-Player-v21.35.442.apk
+
+      - name: Upload APK to Artifacts (ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nakon-Player-v21.35.442-APK
+          path: app/build/outputs/apk/debug/Nakon-Player-v21.35.442.apk
+          retention-days: 30
+
+      - name: Publish Direct APK to GitHub Releases (One-Click Phone Download)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="v21.35.442"
+          APK_FILE="app/build/outputs/apk/debug/Nakon-Player-v21.35.442.apk"
+
+          # Attempt to create a release or upload to existing release
+          gh release create "$TAG_NAME" "$APK_FILE" \
+            --title "Nakon-Player v21.35.442" \
+            --notes "📱 **Nakon-Player v21.35.442 Offline Video Player**\n\nDirect APK download for Android phones. Tap the APK file below to install directly on your device." \
+            --latest || gh release upload "$TAG_NAME" "$APK_FILE" --clobber || echo "Release upload skipped or completed."
