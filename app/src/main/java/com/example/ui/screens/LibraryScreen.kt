@@ -131,17 +131,25 @@ private fun FolderCard(
     ) {
         Box(
             modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .size(54.dp)
+                .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Folder,
-                contentDescription = null,
-                tint = YouTubeRed,
-                modifier = Modifier.size(26.dp)
-            )
+            if (folder.sampleVideo != null) {
+                com.example.ui.components.VideoThumbnailImage(
+                    video = folder.sampleVideo,
+                    contentDescription = folder.name,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = YouTubeRed,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(14.dp))

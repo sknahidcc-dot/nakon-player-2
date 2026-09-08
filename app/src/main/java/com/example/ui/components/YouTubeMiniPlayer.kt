@@ -80,11 +80,8 @@ fun YouTubeMiniPlayer(
                         .clip(RoundedCornerShape(6.dp))
                         .background(Color.Black)
                 ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(video.uri)
-                            .crossfade(true)
-                            .build(),
+                    VideoThumbnailImage(
+                        video = video,
                         contentDescription = video.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

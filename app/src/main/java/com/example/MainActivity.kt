@@ -14,6 +14,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -50,6 +51,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.player.BottomTab
 import com.example.player.DarkThemeOption
 import com.example.player.PlayerViewModel
+import com.example.ui.components.DeleteVideoConfirmDialog
+import com.example.ui.components.RenameVideoDialog
 import com.example.ui.components.YouTubeBottomNavBar
 import com.example.ui.components.YouTubeMiniPlayer
 import com.example.ui.components.YouTubeTopBar
@@ -115,6 +118,20 @@ class MainActivity : ComponentActivity() {
                 viewModel.setPermissionGranted(isGranted)
             }
 
+            // Scoped storage recoverable security intent launcher for Android 10+ delete/rename
+            val intentSenderLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.StartIntentSenderForResult()
+            ) { result ->
+                viewModel.onRecoverableIntentResult(result.resultCode == RESULT_OK)
+            }
+
+            LaunchedEffect(uiState.pendingIntentSender) {
+                uiState.pendingIntentSender?.let { sender ->
+                    val request = IntentSenderRequest.Builder(sender).build()
+                    intentSenderLauncher.launch(request)
+                }
+            }
+
             LaunchedEffect(Unit) {
                 val requiredPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     Manifest.permission.READ_MEDIA_VIDEO
@@ -165,6 +182,7 @@ class MainActivity : ComponentActivity() {
                         onPrevious = viewModel::playPreviousVideo,
                         onCollapse = { viewModel.setMiniPlayer(true) },
                         onToggleFullscreen = viewModel::toggleFullscreen,
+                        onToggleResizeMode = viewModel::toggleResizeMode,
                         onToggleAutoPlay = viewModel::toggleAutoPlay,
                         onToggleSubtitles = { viewModel.toggleSubtitles(!uiState.isSubtitlesEnabled) },
                         onSetPlaybackSpeed = viewModel::setPlaybackSpeed,
@@ -173,7 +191,9 @@ class MainActivity : ComponentActivity() {
                         onAttachSubtitle = viewModel::attachSubtitleUri,
                         onEnterPiP = { enterPictureInPicture() },
                         onSelectVideo = { video -> viewModel.playVideo(video, expandToWatchPage = true) },
-                        onToggleLike = viewModel::toggleLikeVideo
+                        onToggleLike = viewModel::toggleLikeVideo,
+                        onRenameVideo = { video -> viewModel.showRenameDialog(video) },
+                        onDeleteVideo = { video -> viewModel.showDeleteDialog(video) }
                     )
                 } else {
                     Scaffold(
@@ -249,7 +269,9 @@ class MainActivity : ComponentActivity() {
                                             }
                                             permissionLauncher.launch(req)
                                         },
-                                        onRefresh = viewModel::loadVideos
+                                        onRefresh = viewModel::loadVideos,
+                                        onRenameVideo = { video -> viewModel.showRenameDialog(video) },
+                                        onDeleteVideo = { video -> viewModel.showDeleteDialog(video) }
                                     )
                                 }
                                 BottomTab.SHORTS -> {
@@ -302,6 +324,7 @@ class MainActivity : ComponentActivity() {
                                     onPrevious = viewModel::playPreviousVideo,
                                     onCollapse = { viewModel.setMiniPlayer(true) },
                                     onToggleFullscreen = viewModel::toggleFullscreen,
+                                    onToggleResizeMode = viewModel::toggleResizeMode,
                                     onToggleAutoPlay = viewModel::toggleAutoPlay,
                                     onToggleSubtitles = { viewModel.toggleSubtitles(!uiState.isSubtitlesEnabled) },
                                     onSetPlaybackSpeed = viewModel::setPlaybackSpeed,
@@ -310,11 +333,39 @@ class MainActivity : ComponentActivity() {
                                     onAttachSubtitle = viewModel::attachSubtitleUri,
                                     onEnterPiP = { enterPictureInPicture() },
                                     onSelectVideo = { video -> viewModel.playVideo(video, expandToWatchPage = true) },
-                                    onToggleLike = viewModel::toggleLikeVideo
+                                    onToggleLike = viewModel::toggleLikeVideo,
+                                    onRenameVideo = { video -> viewModel.showRenameDialog(video) },
+                                    onDeleteVideo = { video -> viewModel.showDeleteDialog(video) }
                                 )
                             }
                         }
                     }
+                }
+
+                // Rename Video Dialog
+                uiState.videoToRename?.let { video ->
+                    RenameVideoDialog(
+                        video = video,
+                        onDismiss = {
+                            viewModel.dismissDialogs()
+                        },
+                        onConfirmRename = { newName ->
+                            viewModel.confirmRename(video, newName)
+                        }
+                    )
+                }
+
+                // Delete Video Confirmation Dialog
+                uiState.videoToDelete?.let { video ->
+                    DeleteVideoConfirmDialog(
+                        video = video,
+                        onDismiss = {
+                            viewModel.dismissDialogs()
+                        },
+                        onConfirmDelete = {
+                            viewModel.confirmDelete(video)
+                        }
+                    )
                 }
             }
         }

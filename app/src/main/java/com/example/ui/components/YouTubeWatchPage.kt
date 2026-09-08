@@ -25,8 +25,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.CropFree
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -73,6 +78,7 @@ import com.example.model.LocalVideo
 import com.example.player.PlayerUiState
 import com.example.player.RepeatState
 import com.example.player.SeekDirection
+import com.example.player.VideoResizeMode
 import com.example.ui.theme.YouTubeRed
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,6 +96,7 @@ fun YouTubeWatchPage(
     onPrevious: () -> Unit,
     onCollapse: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    onToggleResizeMode: () -> Unit = {},
     onToggleAutoPlay: () -> Unit,
     onToggleSubtitles: () -> Unit,
     onSetPlaybackSpeed: (Float) -> Unit,
@@ -99,6 +106,8 @@ fun YouTubeWatchPage(
     onEnterPiP: () -> Unit,
     onSelectVideo: (LocalVideo) -> Unit,
     onToggleLike: (Long) -> Unit,
+    onRenameVideo: (LocalVideo) -> Unit = {},
+    onDeleteVideo: (LocalVideo) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val currentVideo = uiState.currentVideo ?: return
@@ -130,19 +139,21 @@ fun YouTubeWatchPage(
             }
                 .background(Color.Black)
         ) {
-            // Android Media3 PlayerView
+            // Android Media3 PlayerView with dynamic Fit-To-Screen / ResizeMode support
             AndroidView(
                 factory = { context ->
                     PlayerView(context).apply {
                         useController = false
                         player = exoPlayer
                         setShowSubtitleButton(false)
+                        resizeMode = uiState.resizeMode.exoMode
                     }
                 },
                 update = { view ->
                     if (view.player != exoPlayer) {
                         view.player = exoPlayer
                     }
+                    view.resizeMode = uiState.resizeMode.exoMode
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -158,6 +169,8 @@ fun YouTubeWatchPage(
                 isAutoPlay = uiState.isAutoPlayEnabled,
                 repeatState = uiState.repeatState,
                 isSubtitlesEnabled = uiState.isSubtitlesEnabled,
+                resizeMode = uiState.resizeMode,
+                resizeHudMessage = uiState.resizeHudMessage,
                 volumePercent = uiState.volumePercent,
                 isVolumeHudVisible = uiState.isVolumeHudVisible,
                 brightnessPercent = uiState.brightnessPercent,
@@ -175,6 +188,7 @@ fun YouTubeWatchPage(
                 onPrevious = onPrevious,
                 onCollapse = onCollapse,
                 onToggleFullscreen = onToggleFullscreen,
+                onToggleResizeMode = onToggleResizeMode,
                 onToggleAutoPlay = onToggleAutoPlay,
                 onToggleSubtitles = onToggleSubtitles,
                 onOpenSettings = { showSettingsSheet = true },
@@ -350,6 +364,38 @@ fun YouTubeWatchPage(
                                 )
                             }
 
+                            // Fit to Screen / Resize Pill
+                            PillButton(
+                                icon = when (uiState.resizeMode) {
+                                    VideoResizeMode.FIT -> Icons.Default.AspectRatio
+                                    VideoResizeMode.ZOOM -> Icons.Default.FitScreen
+                                    VideoResizeMode.FILL -> Icons.Default.CropFree
+                                },
+                                label = when (uiState.resizeMode) {
+                                    VideoResizeMode.FIT -> "Original Fit"
+                                    VideoResizeMode.ZOOM -> "Fit to Screen"
+                                    VideoResizeMode.FILL -> "Fill Screen"
+                                },
+                                isActive = uiState.resizeMode != VideoResizeMode.FIT,
+                                onClick = onToggleResizeMode
+                            )
+
+                            // Rename Video Pill
+                            PillButton(
+                                icon = Icons.Default.Edit,
+                                label = "Rename",
+                                isActive = false,
+                                onClick = { onRenameVideo(currentVideo) }
+                            )
+
+                            // Delete Video Pill
+                            PillButton(
+                                icon = Icons.Default.Delete,
+                                label = "Delete",
+                                isActive = false,
+                                onClick = { onDeleteVideo(currentVideo) }
+                            )
+
                             // Subtitle Pill
                             PillButton(
                                 icon = Icons.Default.Subtitles,
@@ -442,7 +488,9 @@ fun YouTubeWatchPage(
                         video = video,
                         onClick = { onSelectVideo(video) },
                         onPlayInMiniPlayer = { onSelectVideo(video) },
-                        onPlayInBackground = { onSelectVideo(video) }
+                        onPlayInBackground = { onSelectVideo(video) },
+                        onRename = { onRenameVideo(video) },
+                        onDelete = { onDeleteVideo(video) }
                     )
                 }
 
@@ -473,6 +521,49 @@ fun YouTubeWatchPage(
                     ),
                     color = MaterialTheme.colorScheme.onSurface
                 )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Screen Aspect Ratio / Fit to Screen (User Request 2)
+                Text(
+                    text = "Screen Fit / Aspect Ratio",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        VideoResizeMode.FIT to "Original Fit",
+                        VideoResizeMode.ZOOM to "Fit to Screen",
+                        VideoResizeMode.FILL to "Stretch Fill"
+                    ).forEach { (mode, title) ->
+                        val isSelected = uiState.resizeMode == mode
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isSelected) YouTubeRed else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable {
+                                    if (!isSelected) onToggleResizeMode()
+                                }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = title,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(14.dp))
 

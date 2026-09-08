@@ -1,13 +1,17 @@
 package com.example.data
 
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
+import android.content.IntentSender
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import com.example.model.LocalVideo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class VideoRepository(private val context: Context) {
 
@@ -92,6 +96,116 @@ class VideoRepository(private val context: Context) {
         }
 
         videoList
+    }
+
+    fun getDeleteIntentSender(video: LocalVideo): IntentSender? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !video.isDemo) {
+            return MediaStore.createDeleteRequest(context.contentResolver, listOf(video.uri)).intentSender
+        }
+        return null
+    }
+
+    fun getWriteIntentSender(video: LocalVideo): IntentSender? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !video.isDemo) {
+            return MediaStore.createWriteRequest(context.contentResolver, listOf(video.uri)).intentSender
+        }
+        return null
+    }
+
+    suspend fun deleteVideo(video: LocalVideo): Result<Unit> = withContext(Dispatchers.IO) {
+        if (video.isDemo) {
+            return@withContext Result.success(Unit)
+        }
+
+        try {
+            val rows = context.contentResolver.delete(video.uri, null, null)
+            if (rows > 0) {
+                return@withContext Result.success(Unit)
+            }
+        } catch (e: SecurityException) {
+            return@withContext Result.failure(e)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // Fallback: direct file deletion if path exists
+        if (video.path.isNotEmpty()) {
+            try {
+                val file = File(video.path)
+                if (file.exists() && file.delete()) {
+                    MediaScannerConnection.scanFile(context, arrayOf(video.path), null, null)
+                    return@withContext Result.success(Unit)
+                }
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
+            }
+        }
+
+        Result.success(Unit)
+    }
+
+    suspend fun renameVideo(video: LocalVideo, newTitle: String): Result<LocalVideo> = withContext(Dispatchers.IO) {
+        if (newTitle.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Video name cannot be empty"))
+        }
+
+        val extension = if (video.title.contains(".")) {
+            video.title.substringAfterLast(".")
+        } else {
+            "mp4"
+        }
+
+        val cleanDisplayName = if (newTitle.endsWith(".$extension", ignoreCase = true)) {
+            newTitle
+        } else {
+            "$newTitle.$extension"
+        }
+
+        val updatedVideo = video.copy(title = cleanDisplayName)
+
+        if (video.isDemo) {
+            return@withContext Result.success(updatedVideo)
+        }
+
+        // 1. Update MediaStore values
+        try {
+            val values = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, cleanDisplayName)
+                put(MediaStore.Video.Media.TITLE, newTitle.substringBeforeLast("."))
+            }
+            val rows = context.contentResolver.update(video.uri, values, null, null)
+            if (rows > 0) {
+                return@withContext Result.success(updatedVideo)
+            }
+        } catch (e: SecurityException) {
+            return@withContext Result.failure(e)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 2. Direct File Rename Fallback
+        if (video.path.isNotEmpty()) {
+            try {
+                val oldFile = File(video.path)
+                if (oldFile.exists()) {
+                    val parent = oldFile.parentFile
+                    val newFile = File(parent, cleanDisplayName)
+                    if (oldFile.renameTo(newFile)) {
+                        MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(oldFile.absolutePath, newFile.absolutePath),
+                            null,
+                            null
+                        )
+                        return@withContext Result.success(updatedVideo.copy(path = newFile.absolutePath))
+                    }
+                }
+            } catch (e: Exception) {
+                return@withContext Result.failure(e)
+            }
+        }
+
+        Result.success(updatedVideo)
     }
 
     fun getDemoVideos(): List<LocalVideo> {

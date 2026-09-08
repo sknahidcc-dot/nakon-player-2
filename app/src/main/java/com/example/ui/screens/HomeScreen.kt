@@ -46,6 +46,8 @@ fun HomeScreen(
     onFilterSelect: (String) -> Unit,
     onRequestPermission: () -> Unit,
     onRefresh: () -> Unit,
+    onRenameVideo: (LocalVideo) -> Unit = {},
+    onDeleteVideo: (LocalVideo) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -119,7 +121,9 @@ fun HomeScreen(
                         video = video,
                         onClick = { onVideoClick(video) },
                         onPlayInMiniPlayer = { onVideoClick(video) },
-                        onPlayInBackground = { onVideoClick(video) }
+                        onPlayInBackground = { onVideoClick(video) },
+                        onRename = { onRenameVideo(video) },
+                        onDelete = { onDeleteVideo(video) }
                     )
                 }
             }

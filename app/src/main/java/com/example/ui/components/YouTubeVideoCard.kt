@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PictureInPictureAlt
@@ -46,8 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.example.model.LocalVideo
 import com.example.ui.theme.YouTubeRed
 
@@ -57,6 +57,8 @@ fun YouTubeVideoCard(
     onClick: () -> Unit,
     onPlayInMiniPlayer: () -> Unit,
     onPlayInBackground: () -> Unit,
+    onRename: () -> Unit = {},
+    onDelete: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -69,18 +71,15 @@ fun YouTubeVideoCard(
             .padding(bottom = 16.dp)
             .testTag("video_card_${video.id}")
     ) {
-        // 16:9 Thumbnail
+        // 16:9 High-Performance Video Thumbnail
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(video.uri)
-                    .crossfade(true)
-                    .build(),
+            VideoThumbnailImage(
+                video = video,
                 contentDescription = video.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -252,6 +251,34 @@ fun YouTubeVideoCard(
                         onClick = {
                             showMenu = false
                             onPlayInBackground()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Rename Video") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = YouTubeRed
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onRename()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete Video", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        },
+                        onClick = {
+                            showMenu = false
+                            onDelete()
                         }
                     )
                     DropdownMenuItem(

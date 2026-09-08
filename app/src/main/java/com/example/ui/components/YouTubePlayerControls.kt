@@ -23,11 +23,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.BrightnessMedium
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
+import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.FitScreen
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -70,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.LocalVideo
 import com.example.player.RepeatState
 import com.example.player.SeekDirection
+import com.example.player.VideoResizeMode
 import com.example.ui.theme.YouTubeRed
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -86,6 +90,8 @@ fun YouTubePlayerControls(
     isAutoPlay: Boolean,
     repeatState: RepeatState,
     isSubtitlesEnabled: Boolean,
+    resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+    resizeHudMessage: String? = null,
     // Gesture States from ViewModel
     volumePercent: Int,
     isVolumeHudVisible: Boolean,
@@ -105,6 +111,7 @@ fun YouTubePlayerControls(
     onPrevious: () -> Unit,
     onCollapse: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    onToggleResizeMode: () -> Unit = {},
     onToggleAutoPlay: () -> Unit,
     onToggleSubtitles: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -375,6 +382,37 @@ fun YouTubePlayerControls(
             }
         }
 
+        // ================= Resize Mode HUD Badge =================
+        AnimatedVisibility(
+            visible = resizeHudMessage != null,
+            enter = fadeIn() + scaleIn(initialScale = 0.85f),
+            exit = fadeOut() + scaleOut(targetScale = 0.85f),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color(0xDD111111))
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.FitScreen,
+                        contentDescription = null,
+                        tint = YouTubeRed,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = resizeHudMessage ?: "",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
         // ================= Main Controls Overlay =================
         AnimatedVisibility(
             visible = areControlsVisible,
@@ -553,29 +591,15 @@ fun YouTubePlayerControls(
                         .align(Alignment.BottomCenter)
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    // Red Scrubber Slider
-                    val effectivePosition = if (isDraggingSlider) sliderTempPosition.toLong() else currentPosition
-                    val safeDuration = duration.coerceAtLeast(1L)
-
-                    Slider(
-                        value = (effectivePosition.toFloat() / safeDuration).coerceIn(0f, 1f),
-                        onValueChange = { frac ->
-                            isDraggingSlider = true
-                            sliderTempPosition = frac * safeDuration
-                        },
-                        onValueChangeFinished = {
-                            isDraggingSlider = false
-                            onSeekTo(sliderTempPosition.toLong())
-                        },
-                        colors = SliderDefaults.colors(
-                            thumbColor = YouTubeRed,
-                            activeTrackColor = YouTubeRed,
-                            inactiveTrackColor = Color(0x66FFFFFF)
-                        ),
+                    // Ultra-sleek, pixel-perfect YouTube Timeline Scrubber (3dp thin line)
+                    YouTubeTimelineScrubber(
+                        currentPosition = currentPosition,
+                        duration = duration,
+                        bufferedPosition = bufferedPosition,
+                        onSeekTo = onSeekTo,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(28.dp)
-                            .testTag("video_timeline_scrubber")
+                            .padding(bottom = 2.dp)
                     )
 
                     Row(
@@ -584,13 +608,34 @@ fun YouTubePlayerControls(
                     ) {
                         // Current Time / Duration
                         Text(
-                            text = "${formatTime(effectivePosition)} / ${formatTime(duration)}",
+                            text = "${formatTime(currentPosition)} / ${formatTime(duration)}",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
 
                         Spacer(modifier = Modifier.weight(1f))
+
+                        // Fit to Screen / Resize Mode Button
+                        IconButton(
+                            onClick = onToggleResizeMode,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("fit_to_screen_toggle_button")
+                        ) {
+                            Icon(
+                                imageVector = when (resizeMode) {
+                                    VideoResizeMode.FIT -> Icons.Default.AspectRatio
+                                    VideoResizeMode.ZOOM -> Icons.Default.FitScreen
+                                    VideoResizeMode.FILL -> Icons.Default.CropFree
+                                },
+                                contentDescription = "Fit to Screen",
+                                tint = if (resizeMode != VideoResizeMode.FIT) YouTubeRed else Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         // Fullscreen button
                         IconButton(

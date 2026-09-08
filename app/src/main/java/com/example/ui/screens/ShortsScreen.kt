@@ -75,11 +75,8 @@ fun ShortsScreen(
                         .background(Color.Black)
                         .clickable { onPlayVideo(video) }
                 ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(video.uri)
-                            .crossfade(true)
-                            .build(),
+                    com.example.ui.components.VideoThumbnailImage(
+                        video = video,
                         contentDescription = video.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

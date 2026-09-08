@@ -2,6 +2,7 @@ package com.example.player
 
 import android.app.Application
 import android.content.Context
+import android.content.IntentSender
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
@@ -14,6 +15,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.example.data.VideoRepository
 import com.example.model.LocalVideo
 import kotlinx.coroutines.Job
@@ -41,6 +43,12 @@ enum class BottomTab {
     HOME, SHORTS, LIBRARY, YOU
 }
 
+enum class VideoResizeMode(val title: String, val exoMode: Int) {
+    FIT("Original (Fit)", AspectRatioFrameLayout.RESIZE_MODE_FIT),
+    ZOOM("Fit to Screen (Zoom)", AspectRatioFrameLayout.RESIZE_MODE_ZOOM),
+    FILL("Stretch", AspectRatioFrameLayout.RESIZE_MODE_FILL)
+}
+
 data class PlayerUiState(
     val currentVideo: LocalVideo? = null,
     val playlist: List<LocalVideo> = emptyList(),
@@ -54,6 +62,8 @@ data class PlayerUiState(
     val isBackgroundPlayEnabled: Boolean = true,
     val isMiniPlayerActive: Boolean = false,
     val isFullscreen: Boolean = false,
+    val resizeMode: VideoResizeMode = VideoResizeMode.FIT,
+    val resizeHudMessage: String? = null,
     val subtitleUri: Uri? = null,
     val isSubtitlesEnabled: Boolean = true,
     val activeSubtitleText: String = "",
@@ -65,6 +75,10 @@ data class PlayerUiState(
     val seekDifferenceSeconds: Int = 0,
     val isSeekHudVisible: Boolean = false,
     val doubleTapSide: SeekDirection? = null,
+    // Manage video dialogs
+    val videoToRename: LocalVideo? = null,
+    val videoToDelete: LocalVideo? = null,
+    val pendingIntentSender: IntentSender? = null,
     // General app state
     val allVideos: List<LocalVideo> = emptyList(),
     val filteredVideos: List<LocalVideo> = emptyList(),
@@ -465,6 +479,141 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun selectTab(tab: BottomTab) {
         _uiState.update { it.copy(selectedTab = tab) }
+    }
+
+    private var resizeHudJob: Job? = null
+
+    fun toggleResizeMode() {
+        val nextMode = when (_uiState.value.resizeMode) {
+            VideoResizeMode.FIT -> VideoResizeMode.ZOOM
+            VideoResizeMode.ZOOM -> VideoResizeMode.FILL
+            VideoResizeMode.FILL -> VideoResizeMode.FIT
+        }
+        setResizeMode(nextMode)
+    }
+
+    fun setResizeMode(mode: VideoResizeMode) {
+        _uiState.update { it.copy(resizeMode = mode, resizeHudMessage = mode.title) }
+        resizeHudJob?.cancel()
+        resizeHudJob = viewModelScope.launch {
+            delay(1500)
+            _uiState.update { it.copy(resizeHudMessage = null) }
+        }
+    }
+
+    fun showRenameDialog(video: LocalVideo) {
+        _uiState.update { it.copy(videoToRename = video) }
+    }
+
+    fun dismissRenameDialog() {
+        _uiState.update { it.copy(videoToRename = null) }
+    }
+
+    fun showDeleteDialog(video: LocalVideo) {
+        _uiState.update { it.copy(videoToDelete = video) }
+    }
+
+    fun dismissDeleteDialog() {
+        _uiState.update { it.copy(videoToDelete = null) }
+    }
+
+    fun dismissDialogs() {
+        _uiState.update { it.copy(videoToRename = null, videoToDelete = null, pendingIntentSender = null) }
+    }
+
+    fun confirmDelete(video: LocalVideo) {
+        requestDeleteVideo(video) { sender ->
+            _uiState.update { it.copy(pendingIntentSender = sender) }
+        }
+    }
+
+    fun confirmRename(video: LocalVideo, newName: String) {
+        requestRenameVideo(video, newName) { sender ->
+            _uiState.update { it.copy(pendingIntentSender = sender) }
+        }
+    }
+
+    fun onRecoverableIntentResult(success: Boolean) {
+        _uiState.update { it.copy(pendingIntentSender = null, videoToDelete = null, videoToRename = null) }
+        if (success) {
+            loadVideos()
+        }
+    }
+
+    fun requestDeleteVideo(video: LocalVideo, onIntentSenderRequired: (IntentSender) -> Unit = {}) {
+        viewModelScope.launch {
+            val sender = repository.getDeleteIntentSender(video)
+            if (sender != null) {
+                onIntentSenderRequired(sender)
+                return@launch
+            }
+            val result = repository.deleteVideo(video)
+            if (result.isSuccess) {
+                onVideoDeletedSuccess(video)
+            } else {
+                val exception = result.exceptionOrNull()
+                if (exception is android.app.RecoverableSecurityException) {
+                    onIntentSenderRequired(exception.userAction.actionIntent.intentSender)
+                }
+            }
+        }
+    }
+
+    fun onVideoDeletedSuccess(video: LocalVideo) {
+        val updatedAll = _uiState.value.allVideos.filter { it.id != video.id }
+        val updatedFiltered = _uiState.value.filteredVideos.filter { it.id != video.id }
+        val isCurrent = _uiState.value.currentVideo?.id == video.id
+
+        if (isCurrent) {
+            if (updatedAll.isNotEmpty()) {
+                playNextVideo()
+            } else {
+                closePlayer()
+            }
+        }
+
+        _uiState.update {
+            it.copy(
+                allVideos = updatedAll,
+                filteredVideos = updatedFiltered,
+                videoToDelete = null
+            )
+        }
+    }
+
+    fun requestRenameVideo(video: LocalVideo, newName: String, onIntentSenderRequired: (IntentSender) -> Unit = {}) {
+        viewModelScope.launch {
+            val sender = repository.getWriteIntentSender(video)
+            if (sender != null) {
+                onIntentSenderRequired(sender)
+                return@launch
+            }
+            val result = repository.renameVideo(video, newName)
+            if (result.isSuccess) {
+                val updated = result.getOrNull() ?: video.copy(title = newName)
+                onVideoRenamedSuccess(video, updated)
+            } else {
+                val exception = result.exceptionOrNull()
+                if (exception is android.app.RecoverableSecurityException) {
+                    onIntentSenderRequired(exception.userAction.actionIntent.intentSender)
+                }
+            }
+        }
+    }
+
+    fun onVideoRenamedSuccess(oldVideo: LocalVideo, updatedVideo: LocalVideo) {
+        val updatedAll = _uiState.value.allVideos.map { if (it.id == oldVideo.id) updatedVideo else it }
+        val updatedFiltered = _uiState.value.filteredVideos.map { if (it.id == oldVideo.id) updatedVideo else it }
+        val updatedCurrent = if (_uiState.value.currentVideo?.id == oldVideo.id) updatedVideo else _uiState.value.currentVideo
+
+        _uiState.update {
+            it.copy(
+                allVideos = updatedAll,
+                filteredVideos = updatedFiltered,
+                currentVideo = updatedCurrent,
+                videoToRename = null
+            )
+        }
     }
 
     private fun startProgressTracker() {
