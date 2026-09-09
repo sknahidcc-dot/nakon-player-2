@@ -55,30 +55,57 @@ jobs:
       - name: Grant Execute Permission to gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK with Gradle
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Prepare APK for Download
+      - name: Generate Production Release Keystore
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/Nakon-Player-v21.35.442.apk
-          ls -lh app/build/outputs/apk/debug/Nakon-Player-v21.35.442.apk
+          keytool -genkeypair -v \
+            -keystore "$GITHUB_WORKSPACE/my-upload-key.jks" \
+            -storepass "nakonplayerpass123" \
+            -alias "upload" \
+            -keypass "nakonplayerpass123" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 25000 \
+            -dname "CN=Nakon Player, OU=Mobile App, O=Nakon, L=Dhaka, ST=Dhaka, C=BD"
+          echo "Production Release Keystore generated successfully."
 
-      - name: Upload APK to Artifacts (ZIP)
+      - name: Build Signed Release & Debug APKs with Gradle
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: nakonplayerpass123
+          KEY_PASSWORD: nakonplayerpass123
+        run: |
+          ./gradlew assembleRelease assembleDebug --no-daemon --stacktrace
+
+      - name: Prepare Signed APKs for Download
+        run: |
+          mkdir -p final_apks
+          # Copy Signed Release APK
+          if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            cp app/build/outputs/apk/release/app-release.apk final_apks/Nakon-Player-Release.apk
+            echo "Signed Release APK ready:"
+            ls -lh final_apks/Nakon-Player-Release.apk
+          fi
+          # Also copy Debug APK as alternative
+          if [ -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk final_apks/Nakon-Player-Debug.apk
+          fi
+
+      - name: Upload APKs to Workflow Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Nakon-Player-v21.35.442-APK
-          path: app/build/outputs/apk/debug/Nakon-Player-v21.35.442.apk
+          name: Nakon-Player-APKs
+          path: final_apks/*.apk
           retention-days: 30
 
-      - name: Publish Direct APK to GitHub Releases (One-Click Phone Download)
+      - name: Publish Direct APKs to GitHub Releases
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME="v21.35.442"
-          APK_FILE="app/build/outputs/apk/debug/Nakon-Player-v21.35.442.apk"
+          RELEASE_APK="final_apks/Nakon-Player-Release.apk"
+          DEBUG_APK="final_apks/Nakon-Player-Debug.apk"
 
-          # Attempt to create a release or upload to existing release
-          gh release create "$TAG_NAME" "$APK_FILE" \
-            --title "Nakon-Player v21.35.442" \
-            --notes "📱 **Nakon-Player v21.35.442 Offline Video Player**\n\nDirect APK download for Android phones. Tap the APK file below to install directly on your device." \
-            --latest || gh release upload "$TAG_NAME" "$APK_FILE" --clobber || echo "Release upload skipped or completed."
+          gh release create "$TAG_NAME" "$RELEASE_APK" "$DEBUG_APK" \
+            --title "Nakon-Player v21.35.442 (Signed Release)" \
+            --notes "📱 **Nakon-Player v21.35.442**\n\n### 📦 Download Links:\n- **[Nakon-Player-Release.apk]**: Official Signed Release APK (ইন্সটল করার জন্য রিকমেন্ডেড)\n- **[Nakon-Player-Debug.apk]**: Debug APK (অল্টারনেটিভ)\n\nনিরাপদ ও ফুলস্ক্রিন ফিট-টু-স্ক্রিন, রিনেম, ডিলিট এবং অফলাইন ভিডিও প্লেয়ারের সুবিধাসহ তৈরি।" \
+            --latest || gh release upload "$TAG_NAME" "$RELEASE_APK" "$DEBUG_APK" --clobber || echo "Release upload completed or already exists."
